@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1d8a5a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>Minhas Músicas</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--tx:#1d1d1b;--mu:#6b6a65;--bd:#e2e0d8;--ac:#1d8a5a;--ac2:#e8f5ee;--dn:#c0392b;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--card:#1f1f1d;--tx:#f0eee8;--mu:#9a988f;--bd:#33332f;--ac:#3fbf86;--ac2:#18332a;--dn:#e5675a;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 system-ui,-apple-system,Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:12px 12px 90px}
+h1{font-size:19px;margin:2px 0 6px}
+.stats{color:var(--mu);font-size:14px;margin-bottom:8px}
+.bar{height:6px;background:var(--bd);border-radius:3px;overflow:hidden;margin-bottom:10px}
+.bar i{display:block;height:100%;background:var(--ac);width:0}
+input[type=text],textarea{width:100%;padding:12px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);font:inherit}
+button,.btn{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:10px;padding:10px 14px;cursor:pointer;text-align:center;display:inline-block}
+.p{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600}
+.tabs{display:flex;gap:6px;margin:8px 0}
+.tabs button{flex:1;padding:8px 4px;font-size:14px}
+.tabs button.on{background:var(--ac2);border-color:var(--ac);color:var(--ac);font-weight:600}
+.opt{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--mu);margin:8px 2px}
+.opt input{width:20px;height:20px;accent-color:var(--ac)}
+.row{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:6px 8px 6px 10px;margin-bottom:5px}
+.row input[type=checkbox]{width:28px;height:28px;accent-color:var(--ac);flex:none}
+.t{flex:1;min-width:0;overflow-wrap:anywhere;padding:4px 0}
+.t b{display:block;font-weight:600}.t span{color:var(--mu);font-size:13px}
+.row.d .t{opacity:.5}
+.ib{padding:9px 11px;line-height:1}
+.ib.x{color:var(--dn);font-size:13px;padding:9px 8px;border-color:transparent;background:none}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.tools>*{flex:1 1 45%}
+.more{width:100%;margin:8px 0}
+details{margin-top:14px}summary{color:var(--mu);cursor:pointer;padding:6px 0}
+textarea{min-height:120px;margin:8px 0}
+.empty{text-align:center;color:var(--mu);padding:30px 10px}
+.empty .btn{margin-top:14px}
+input[type=file]{display:none}
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:10px 16px;border-radius:20px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90%;text-align:center}
+#toast.s{opacity:1}
+</style>
+</head>
+<body>
+<main>
+<h1>🎵 Minhas músicas</h1>
+<div class="stats" id="stats"></div>
+<div class="bar"><i id="pb"></i></div>
+<input type="text" id="s" placeholder="Buscar música, artista ou álbum..." autocomplete="off">
+<div class="tabs" id="tabs">
+  <button data-f="miss" class="on">Faltam baixar</button>
+  <button data-f="done">Baixadas</button>
+  <button data-f="all">Todas</button>
+</div>
+<label class="opt"><input type="checkbox" id="auto"> Ao copiar, marcar como baixada automaticamente</label>
+<div id="list"></div>
+<button class="more" id="more" style="display:none"></button>
+
+<div class="tools">
+  <button class="p" id="csv">⬇ Exportar planilha (CSV)</button>
+  <label class="btn" for="file">⬆ Importar CSV</label>
+  <button id="copyall">📋 Copiar tudo</button>
+</div>
+<input type="file" id="file" accept=".csv,text/csv,text/plain,.tsv">
+
+<details>
+  <summary>Adicionar músicas</summary>
+  <textarea id="bulk" placeholder="Uma por linha:&#10;Artista - Música"></textarea>
+  <button class="p" id="bulkb">Adicionar</button>
+</details>
+</main>
+<div id="toast"></div>
+
+<script>
+(function(){
+var PAGE=100,songs=[],filter="miss",shown=PAGE,db=null,loaded=false;
+function $(i){return document.getElementById(i)}
+function toast(m){var t=$("toast");t.textContent=m;t.className="s";clearTimeout(toast.h);toast.h=setTimeout(function(){t.className=""},2200)}
+
+/* ---------- armazenamento local (IndexedDB, com reserva em localStorage) ---------- */
+function openDB(){return new Promise(function(res){
+  try{var r=indexedDB.open("musicas",1);
+    r.onupgradeneeded=function(){r.result.createObjectStore("kv")};
+    r.onsuccess=function(){res(r.result)};r.onerror=function(){res(null)};
+  }catch(e){res(null)}})}
+function dbGet(k){return new Promise(function(res){
+  if(!db){try{res(JSON.parse(localStorage.getItem("musicas_"+k)))}catch(e){res(null)}return}
+  var q=db.transaction("kv").objectStore("kv").get(k);q.onsuccess=function(){res(q.result===undefined?null:q.result)};q.onerror=function(){res(null)}})}
+function dbSet(k,v){
+  if(!db){try{localStorage.setItem("musicas_"+k,JSON.stringify(v))}catch(e){}return}
+  try{db.transaction("kv","readwrite").objectStore("kv").put(v,k)}catch(e){}}
+function save(){if(loaded)dbSet("songs",songs)}
+
+/* ---------- utilidades ---------- */
+function label(s){return s.ar?s.ar+" - "+s.t:s.t}
+function copy(text,msg){
+  function fb(){var a=document.createElement("textarea");a.value=text;a.style.position="fixed";a.style.opacity="0";document.body.appendChild(a);a.select();try{document.execCommand("copy");toast(msg)}catch(e){toast("Não consegui copiar")}document.body.removeChild(a)}
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){toast(msg)},fb)}else fb()
+}
+function stats(){
+  var d=0;songs.forEach(function(s){if(s.d)d++});
+  $("stats").textContent=songs.length+" músicas · "+d+" baixadas · "+(songs.length-d)+" faltam";
+  $("pb").style.width=(songs.length?d/songs.length*100:0)+"%";
+}
+function match(s){
+  var term=$("s").value.toLowerCase().trim();
+  if(filter==="done"&&!s.d)return false;
+  if(filter==="miss"&&s.d)return false;
+  if(!term)return true;
+  return (s.t+" "+s.a+" "+s.ar+" "+s.al+" "+s.p+" "+s.o).toLowerCase().indexOf(term)>-1;
+}
+
+/* ---------- lista ---------- */
+function setDone(s,v,row,cb){
+  s.d=v;save();stats();
+  if(row){row.className="row"+(v?" d":"");cb.checked=v}
+  if(row&&filter!=="all"){setTimeout(function(){if(s.d===v&&!match(s)&&row.parentNode){row.parentNode.removeChild(row);more()}},650)}
+}
+function mk(s){
+  var r=document.createElement("div");r.className="row"+(s.d?" d":"");
+  var c=document.createElement("input");c.type="checkbox";c.checked=s.d;
+  c.onchange=function(){setDone(s,c.checked,r,c)};
+  var t=document.createElement("div");t.className="t";
+  var b=document.createElement("b");b.textContent=s.t;t.appendChild(b);
+  var sub=[s.ar,s.al].filter(Boolean).join(" · ");
+  if(sub){var a=document.createElement("span");a.textContent=sub;t.appendChild(a)}
+  var doCopy=function(){copy(label(s),"Copiado");if($("auto").checked&&!s.d)setDone(s,true,r,c)};
+  t.onclick=doCopy;
+  var cp=document.createElement("button");cp.className="ib";cp.textContent="📋";cp.setAttribute("aria-label","Copiar");cp.onclick=doCopy;
+  var x=document.createElement("button");x.className="ib x";x.textContent="✕";x.setAttribute("aria-label","Apagar");
+  x.onclick=function(){if(confirm("Apagar \""+label(s)+"\"?")){songs=songs.filter(function(o){return o.id!==s.id});save();render()}};
+  r.appendChild(c);r.appendChild(t);r.appendChild(cp);r.appendChild(x);return r;
+}
+function more(){
+  var n=songs.filter(match).length,btn=$("more"),have=$("list").children.length;
+  btn.style.display=n>have?"block":"none";
+  btn.textContent="Mostrar mais ("+(n-have)+" restantes)";
+}
+function render(){
+  stats();shown=PAGE;
+  var L=$("list");L.textContent="";
+  if(!songs.length){
+    var e=document.createElement("div");e.className="empty";
+    e.appendChild(document.createTextNode("Sua lista está vazia. Importe o seu arquivo CSV ou adicione músicas abaixo."));
+    e.appendChild(document.createElement("br"));
+    var l=document.createElement("label");l.className="btn p";l.htmlFor="file";l.textContent="⬆ Importar CSV";e.appendChild(l);
+    L.appendChild(e);$("more").style.display="none";return}
+  var items=songs.filter(match);
+  if(!items.length){var e2=document.createElement("div");e2.className="empty";e2.textContent=filter==="miss"&&!$("s").value?"Tudo baixado! 🎉":"Nada encontrado.";L.appendChild(e2);$("more").style.display="none";return}
+  items.slice(0,shown).forEach(function(s){L.appendChild(mk(s))});
+  more();
+}
+$("more").onclick=function(){
+  var items=songs.filter(match),L=$("list"),from=L.children.length;
+  items.slice(from,from+PAGE).forEach(function(s){L.appendChild(mk(s))});more();
+};
+
+/* ---------- CSV ---------- */
+function parseCSV(text){
+  text=text.replace(/^\uFEFF/,"");
+  var first=text.split(/\r?\n/)[0]||"";
+  var cnt={",":0,";":0,"\t":0};for(var i=0;i<first.length;i++)if(cnt[first[i]]!==undefined)cnt[first[i]]++;
+  var dl=",";if(cnt[";"]>cnt[dl])dl=";";if(cnt["\t"]>cnt[dl])dl="\t";
+  var rows=[],row=[],f="",q=false;
+  for(var k=0;k<text.length;k++){
+    var ch=text[k];
+    if(q){if(ch==='"'){if(text[k+1]==='"'){f+='"';k++}else q=false}else f+=ch}
+    else if(ch==='"')q=true;
+    else if(ch===dl){row.push(f);f=""}
+    else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&text[k+1]==="\n")k++;row.push(f);rows.push(row);row=[];f=""}
+    else f+=ch;
+  }
+  if(f!==""||row.length){row.push(f);rows.push(row)}
+  return rows;
+}
+var ALIAS={t:["song title","título","titulo","title","música","musica","nome","name"],a:["alternative song title","título alternativo","titulo alternativo"],ar:["artist","artista","artists"],al:["album","álbum"],d:["⬇","baixada","baixado","downloaded","download"],p:["playlists","playlist"],o:["obs","observações","observacoes","notas"]};
+function norm(h){return h.replace(/\uFE0F/g,"").trim().toLowerCase()}
+function fromRows(rows){
+  if(!rows.length)return[];
+  var H=rows[0].map(norm),ix={};
+  Object.keys(ALIAS).forEach(function(k){ix[k]=-1;ALIAS[k].forEach(function(n){if(ix[k]<0)ix[k]=H.indexOf(n)})});
+  if(ix.t<0)return null;
+  var out=[];
+  rows.slice(1).forEach(function(r,n){
+    function g(k){return ix[k]>=0&&r[ix[k]]!==undefined?r[ix[k]].trim():""}
+    var t=g("t");if(!t)return;
+    out.push({id:"i"+n,t:t,a:g("a"),ar:g("ar"),al:g("al"),d:/^(true|sim|yes|1|x|verdadeiro)$/i.test(g("d")),p:g("p"),o:g("o")});
+  });
+  return out;
+}
+function q(v){v=String(v);return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
+function csvText(){
+  var h="ID,Cont.,Song Title,Alternative Song Title,Artist,Album,⬇️,Playlists,OBS";
+  return "\uFEFF"+[h].concat(songs.map(function(s){return ["",1,q(s.t),q(s.a),q(s.ar),q(s.al),s.d?"TRUE":"FALSE",q(s.p),q(s.o)].join(",")})).join("\r\n")+"\r\n";
+}
+
+/* ---------- eventos ---------- */
+$("s").oninput=render;
+$("tabs").onclick=function(e){var f=e.target.dataset&&e.target.dataset.f;if(!f)return;filter=f;[].forEach.call($("tabs").children,function(b){b.className=b.dataset.f===f?"on":""});render()};
+$("bulkb").onclick=function(){
+  var n=0;$("bulk").value.split(/\r?\n/).reverse().forEach(function(l){
+    l=l.trim();if(!l)return;var m=l.split(/\s+[-–—]\s+/),ar=m.length>1?m[0].trim():"",t=m.length>1?m.slice(1).join(" - ").trim():l;
+    songs.unshift({id:"n"+Date.now().toString(36)+n,t:t,a:"",ar:ar,al:"",d:false,p:"",o:""});n++;
+  });
+  $("bulk").value="";save();render();toast(n+" adicionadas")
+};
+$("copyall").onclick=function(){copy(songs.map(function(s){return [s.t,s.a,s.ar,s.al,s.d?"TRUE":"FALSE",s.p,s.o].join("\t")}).join("\n"),"Copiado. Cole na planilha")};
+$("csv").onclick=function(){
+  if(!songs.length)return toast("Lista vazia");
+  var blob=new Blob([csvText()],{type:"text/csv;charset=utf-8"});
+  var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="Music.csv";
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(a.href)},4000);toast("Arquivo Music.csv gerado");
+};
+$("file").onchange=function(){
+  var f=this.files&&this.files[0];this.value="";if(!f)return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    var list=fromRows(parseCSV(String(rd.result)));
+    if(list===null)return toast("Não achei a coluna Song Title no arquivo");
+    if(!list.length)return toast("Nenhuma música encontrada");
+    if(songs.length&&!confirm("Substituir a lista atual ("+songs.length+" músicas) por "+list.length+" músicas do arquivo?"))return;
+    songs=list;save();render();toast(list.length+" músicas importadas");
+  };
+  rd.onerror=function(){toast("Não consegui ler o arquivo")};
+  rd.readAsText(f,"utf-8");
+};
+$("auto").onchange=function(){dbSet("auto",$("auto").checked)};
+
+/* ---------- início ---------- */
+openDB().then(function(d){db=d;return Promise.all([dbGet("songs"),dbGet("auto")])}).then(function(r){
+  songs=Array.isArray(r[0])?r[0]:[];$("auto").checked=!!r[1];loaded=true;render();
+  try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+});
+if("serviceWorker" in navigator&&location.protocol==="https:"){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})})}
+})();
+</script>
+</body>
+</html>
